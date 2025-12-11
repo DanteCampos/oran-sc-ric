@@ -1,4 +1,4 @@
-FROM python:3.8-slim as stretch
+FROM python:3.10-slim as stretch
 
 RUN apt-get clean -y && apt-get update -y && \
     apt-get install -y git wget curl less nano \
@@ -20,7 +20,7 @@ RUN wget --content-disposition ${E2AP_LIB_URL} && dpkg -i riclibe2ap_${E2AP_VERS
 RUN wget --content-disposition ${E2AP_DEV_URL} && dpkg -i riclibe2ap-dev_${E2AP_VERSION}_amd64.deb
 RUN rm -f riclibe2ap_${E2AP_VERSION}_amd64.deb riclibe2ap-dev_${E2AP_VERSION}_amd64.deb
 
-FROM python:3.8-slim
+FROM python:3.10-slim
 
 RUN apt-get clean -y && apt-get update -y && \
     apt-get install -y git wget curl less nano
@@ -34,8 +34,20 @@ COPY --from=stretch /usr/local/bin/rmr_probe /opt/e2/rmr_probe
 RUN chmod -R 755 /usr/local/lib/librmr_si.so
 RUN chmod -R 755 /usr/local/lib/libriclibe2ap.so
 
+
+# Install system packages needed to compile C extensions
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --upgrade pip
+
+# Added for the RC xApp
+RUN pip install numpy==2.2.6 pandas==2.3.3 joblib==1.5.2 scikit-learn ricsdl
+
 # Install required Python modules
-RUN pip install --upgrade pip && pip install certifi six python_dateutil setuptools urllib3 logger requests inotify_simple mdclogpy google-api-python-client msgpack ricsdl asn1tools pandas
+RUN pip install certifi six python_dateutil setuptools urllib3 logger requests inotify_simple mdclogpy google-api-python-client msgpack asn1tools
 
 RUN mkdir -p /opt/xApps && chmod -R 755 opt/xApps
 RUN mkdir -p /opt/ric/config && chmod -R 755 /opt/ric/config
