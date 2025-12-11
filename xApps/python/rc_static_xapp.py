@@ -4,40 +4,18 @@ import time
 import datetime
 import argparse
 import signal
-import joblib
-import pandas
 from lib.xAppBase import xAppBase
 import ricxappframe.xapp_rest as ricrest
 import ricxappframe.xapp_sdl as ricsdl
 
 class MyXapp(xAppBase):
-    def __init__(self, config, http_server_port, rmr_port, sleep_interval, prb_lower_bound):
+    def __init__(self, config, http_server_port, rmr_port, sleep_interval=10):
         super(MyXapp, self).__init__(config, http_server_port, rmr_port)
         self.sdl = ricsdl.SDLWrapper()
         self.sleep_interval = sleep_interval
-        self.prb_lower_bound = prb_lower_bound
-        self.model = joblib.load('ml_model.pkl')
-        self.decision_map = {
-            0: 46,
-            1: 66
-        }
-
-    def get_ml_decision(self, metrics):
-        prb_alloc = metrics["prb_alloc"] if metrics["prb_alloc"] != -1 else 100 # Before the RC xApp starts running, the KPM xApp sets the PRB allocation to -1, but it is actually 100 on the gNB side
-        ul_thr = metrics["DRB.UEThpUl"][0]
-        input = pandas.DataFrame({
-            "prb_alloc":  [prb_alloc],
-            "DRB.UEThpUl":  [ul_thr],
-        })
-        inferrence = self.model.predict(input)[0]
-        rrm_policy_max_ratio = self.decision_map[int(inferrence)]
-        print(f"ML algorithm inferred: [{prb_alloc, ul_thr}] -> {inferrence} -> RRM Policy Max PRB Ratio: {rrm_policy_max_ratio}")
-        return rrm_policy_max_ratio
     
-    # Mark the function as xApp start function using xAppBase.start_function decorator.
-    # It is required to start the internal msg receive loop.
     @xAppBase.start_function
-    def start(self, e2_node_id, ue_id):
+    def start(self, e2_node_id, ue_id, policy):
         while self.running:
 
             # Getting the KPMs of the UE from SDL
@@ -45,9 +23,7 @@ class MyXapp(xAppBase):
             print ("Retrieved KPM Metrics for UE ID {} from SDL: {}".format(ue_id, metrics))
 
             # Getting the target PRB allocation
-            max_prb_ratio = self.get_ml_decision(metrics)
-            if max_prb_ratio < self.prb_lower_bound:
-                max_prb_ratio = self.prb_lower_bound
+            max_prb_ratio = policy
 
             # Setting the max_prb_ratio on the gNB and updating it on the SDL
             current_time = datetime.datetime.now()
@@ -66,19 +42,17 @@ if __name__ == '__main__':
     parser.add_argument("--e2_node_id", type=str, default='gnbd_001_001_00019b_0', help="E2 Node ID")
     parser.add_argument("--ran_func_id", type=int, default=3, help="E2SM RC RAN function ID")
     parser.add_argument("--gnb_cu_ue_f1ap_id", type=int, default=0, help="UE ID")
-    parser.add_argument("--sleep_interval", type=int, default=1, help="Sleep interval between control requests")
-    parser.add_argument("--prb_lower_bound", type=int, default=4, help="Lower bound of PRB max ratio")
+    parser.add_argument("--policy", type=int, default=100, help="Fixed PRB max ratio policy to set")
 
     args = parser.parse_args()
     config = args.config
     e2_node_id = args.e2_node_id # TODO: get available E2 nodes from SubMgr, now the id has to be given.
     ran_func_id = args.ran_func_id # TODO: get available E2 nodes from SubMgr, now the id has to be given.
     ue_id = args.gnb_cu_ue_f1ap_id
-    sleep_interval = args.sleep_interval
-    prb_lower_bound = args.prb_lower_bound
+    policy = args.policy
 
     # Create MyXapp.
-    myXapp = MyXapp(config, args.http_server_port, args.rmr_port, sleep_interval, prb_lower_bound)
+    myXapp = MyXapp(config, args.http_server_port, args.rmr_port)
     myXapp.e2sm_rc.set_ran_func_id(ran_func_id)
 
     # Connect exit signals.
@@ -87,4 +61,4 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, myXapp.signal_handler)
 
     # Start xApp.
-    myXapp.start(e2_node_id, ue_id)
+    myXapp.start(e2_node_id, ue_id, policy)
